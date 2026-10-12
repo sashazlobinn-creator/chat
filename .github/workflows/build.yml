@@ -1,0 +1,54 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Create project
+        run: |
+          unzip -q ai_aggregator.zip
+          flutter create --org com.example --project-name ai_aggregator app
+          rm -rf app/lib app/test
+          cp -r ai_aggregator/flutter_app/lib app/lib
+
+      - name: Add dependencies
+        working-directory: app
+        run: flutter pub add http flutter_secure_storage flutter_markdown markdown flutter_highlight highlight
+
+      - name: Patch Android config
+        working-directory: app
+        run: |
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          for f in android/app/build.gradle.kts android/app/build.gradle; do
+            if [ -f "$f" ]; then
+              sed -i -E 's/minSdk(Version)?( =)? ?flutter\.minSdkVersion/minSdk = 23/' "$f"
+            fi
+          done
+
+      - name: Build APK
+        working-directory: app
+        run: flutter build apk --release
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: APK build ${{ github.run_number }}
+          files: app/build/app/outputs/flutter-apk/app-release.apk
